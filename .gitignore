@@ -2,9 +2,9 @@
 __pycache__/*
 lib/__pycache__/*
 *.h5
-data/
+/data/
+/checkpoints/
 deprecated/*
-checkpoints/
 .ipynb_checkpoints/
 .idea/
 
@@ -68,5 +68,5 @@ tags
 
 
 # End of https://www.gitignore.io/api/vim,linux,macos,jupyternotebook
-/data/
-/checkpoints/
+
+
