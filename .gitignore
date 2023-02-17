@@ -2,8 +2,11 @@
 __pycache__/*
 lib/__pycache__/*
 *.h5
-data/coco*
+data/
 deprecated/*
+checkpoints/
+.ipynb_checkpoints/
+.idea/
 
 # Created by https://www.gitignore.io/api/vim,linux,macos,jupyternotebook
 ### JupyterNotebook ###
@@ -65,3 +68,5 @@ tags
 
 
 # End of https://www.gitignore.io/api/vim,linux,macos,jupyternotebook
+/data/
+/checkpoints/
