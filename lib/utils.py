@@ -20,7 +20,9 @@ if MASK_RCNN_MODEL_PATH not in sys.path:
 from samples.coco import coco
 from mrcnn import utils
 from mrcnn import model as modellib
-from mrcnn import visualize  
+from mrcnn import visualize
+
+import pandas as pd
 
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
@@ -361,7 +363,249 @@ class IndexedCocoDataset(coco.CocoDataset):
 
         return category_image_index
 
-    
+
+class SteelDataset(utils.Dataset):
+    def load_steel(self, dataset_dir, files):
+        """Load a subset of the Steel dataset.
+
+        Input:
+        dataset_dir: Root directory of the dataset.
+        files: filenames of images to load
+
+        Creates:
+        image objects:
+            source: source label
+            image_id: id, used filename
+            path: path + filename
+            rle: rle mask encoded pixels, required for mask conversion
+            classes: classes for the rle masks, required for mask conversion
+        """
+        # Add classes.
+        self.add_class("steel", 1, "defect1")
+        self.add_class("steel", 2, "defect2")
+        self.add_class("steel", 3, "defect3")
+        self.add_class("steel", 4, "defect4")
+
+        # Load annotations CSV
+        annotations_train = pd.read_csv(dataset_dir + 'train.csv')
+
+        # Remove images without Encoding
+        annotations_train_Encoded = annotations_train[annotations_train['EncodedPixels'].notna()].copy()
+
+        # Split ImageId_ClassId
+        ImageId_ClassId_split = annotations_train_Encoded["ImageId_ClassId"].str.split("_", n=1, expand=True)
+        annotations_train_Encoded['ImageId'] = ImageId_ClassId_split.loc[:, 0]
+        annotations_train_Encoded['ClassId'] = ImageId_ClassId_split.loc[:, 1]
+
+        for file in files:
+            EncodedPixels = [annotations_train_Encoded['EncodedPixels'][annotations_train_Encoded['ImageId'] == file]]
+            ClassID = (annotations_train_Encoded['ClassId'][annotations_train_Encoded['ImageId'] == file])
+
+            self.add_image(
+                source="steel",
+                image_id=file,  # use filename as a unique image id
+                path=Train_Dir + '/' + file,
+                rle=EncodedPixels,
+                classes=ClassID)
+
+    def load_mask(self, image_id):
+        """Generate instance masks for an image.
+        Input:
+        image_id: id of the image
+
+        Returns:
+        masks: A bool array of shape [height, width, instance count] with one mask per instance.
+        class_ids: a 1D int array of class IDs of the instance masks.
+        """
+        # If not a steel dataset image, delegate to parent class.
+        image_info = self.image_info[image_id]
+        if image_info["source"] != "steel":
+            return super(self.__class__, self).load_mask(image_id)
+
+        # Convert rle to single mask
+        ClassIDIndex = 0
+        ClassID = np.empty(0, dtype=int)
+        maskarray = np.empty((256, 1600, 0), dtype=int)
+        for rlelist in image_info['rle']:
+            for row in rlelist:
+                mask = np.zeros(1600 * 256, dtype=np.uint8)
+                array = np.asarray([int(x) for x in row.split()])
+                starts = array[0::2] - 1
+                lengths = array[1::2]
+                for index, start in enumerate(starts):
+                    mask[int(start):int(start + lengths[index])] = 1
+                mask = mask.reshape((256, 1600), order='F')
+                # Label mask elements
+                structure = generate_binary_structure(2, 2)
+                labeled_array, labels = scipy_label(mask, structure)
+                # Convert labeled_array elements to bitmap mask array
+                for label in range(labels):
+                    labelmask = np.copy(labeled_array)
+                    labelmask[labelmask != label + 1] = 0
+                    if label == 0:
+                        labelmask = np.expand_dims(labelmask, axis=2)
+                        maskarray = np.concatenate((maskarray, labelmask), axis=2)
+                    else:
+                        labelmask[labelmask == label + 1] = 1
+                        labelmask = np.expand_dims(labelmask, axis=2)
+                        maskarray = np.concatenate((maskarray, labelmask), axis=2)
+                    # Update ClassID list
+                    ClassID = np.append(ClassID, int(image_info['classes'].iloc[ClassIDIndex]))
+                ClassIDIndex = ClassIDIndex + 1
+
+        # Return mask, and array of class IDs of each instance.
+        return maskarray.astype(np.bool), ClassID
+
+    def image_reference(self, image_id):
+        """Return the path of the image."""
+        info = self.image_info[image_id]
+        if info["source"] == "steel":
+            return info["path"]
+        else:
+            super(self.__class__, self).image_reference(image_id)
+
+    def __init__(self, dataframe):
+
+        # https://rhettinger.wordpress.com/2011/05/26/super-considered-super/
+        super().__init__(self)
+
+        # needs to be in the format of our squashed df,
+        # i.e. image id and list of rle plus their respective label on a single row
+        self.dataframe = dataframe
+
+    def load_dataset(self, subset='train'):
+        """ takes:
+                - pandas df containing
+                    1) file names of our images
+                       (which we will append to the directory to find our images)
+                    2) a list of rle for each image
+                       (which will be fed to our build_mask()
+                       function we also used in the eda section)
+            does:
+                adds images to the dataset with the utils.Dataset's add_image() metho
+        """
+
+        # input hygiene
+        assert subset in ['train', 'test'], f'"{subset}" is not a valid value.'
+        img_folder = img_train_folder if subset == 'train' else img_test_folder
+
+        # add our four classes
+        for i in range(1, 5):
+            self.add_class(source='', class_id=i, class_name=f'defect_{i}')
+
+        # add the image to our utils.Dataset class
+        for index, row in self.dataframe.iterrows():
+            file_name = row.ImageId
+            file_path = f'{img_folder}/{file_name}'
+
+            assert os.path.isfile(file_path), 'File doesn\'t exist.'
+            self.add_image(source='',
+                           image_id=file_name,
+                           path=file_path)
+
+    def load_mask(self, image_id):
+        """As found in:
+            https://github.com/matterport/Mask_RCNN/blob/master/samples/coco/coco.py
+
+        Load instance masks for the given image
+
+        This function converts the different mask format to one format
+        in the form of a bitmap [height, width, instances]
+
+        Returns:
+            - masks    : A bool array of shape [height, width, instance count] with
+                         one mask per instance
+            - class_ids: a 1D array of class IDs of the instance masks
+        """
+
+        # find the image in the dataframe
+        row = self.dataframe.iloc[image_id]
+
+        # extract function arguments
+        rle = row['EncodedPixels']
+        labels = row['ClassId']
+
+        # create our numpy array mask
+        mask = build_mask(encodings=rle, labels=labels)
+
+        # we're actually doing semantic segmentation, so our second return value is a bit awkward
+        # we have one layer per class, rather than per instance... so it will always just be
+        # 1, 2, 3, 4. See the section on Data Shapes for the Labels.
+        return mask.astype(np.bool), np.array([1, 2, 3, 4], dtype=np.int32)
+
+
+class SeverstalDataset(utils.Dataset):
+
+    def __init__(self, dataframe):
+
+        # https://rhettinger.wordpress.com/2011/05/26/super-considered-super/
+        super().__init__(self)
+
+        # needs to be in the format of our squashed df,
+        # i.e. image id and list of rle plus their respective label on a single row
+        self.dataframe = dataframe
+
+    def load_dataset(self, subset='train'):
+        """ takes:
+                - pandas df containing
+                    1) file names of our images
+                       (which we will append to the directory to find our images)
+                    2) a list of rle for each image
+                       (which will be fed to our build_mask()
+                       function we also used in the eda section)
+            does:
+                adds images to the dataset with the utils.Dataset's add_image() metho
+        """
+
+        # input hygiene
+        assert subset in ['train', 'test'], f'"{subset}" is not a valid value.'
+        img_folder = img_train_folder if subset == 'train' else img_test_folder
+
+        # add our four classes
+        for i in range(1, 5):
+            self.add_class(source='', class_id=i, class_name=f'defect_{i}')
+
+        # add the image to our utils.Dataset class
+        for index, row in self.dataframe.iterrows():
+            file_name = row.ImageId
+            file_path = f'{img_folder}/{file_name}'
+
+            assert os.path.isfile(file_path), 'File doesn\'t exist.'
+            self.add_image(source='',
+                           image_id=file_name,
+                           path=file_path)
+
+    def load_mask(self, image_id):
+        """As found in:
+            https://github.com/matterport/Mask_RCNN/blob/master/samples/coco/coco.py
+
+        Load instance masks for the given image
+
+        This function converts the different mask format to one format
+        in the form of a bitmap [height, width, instances]
+
+        Returns:
+            - masks    : A bool array of shape [height, width, instance count] with
+                         one mask per instance
+            - class_ids: a 1D array of class IDs of the instance masks
+        """
+
+        # find the image in the dataframe
+        row = self.dataframe.iloc[image_id]
+
+        # extract function arguments
+        rle = row['EncodedPixels']
+        labels = row['ClassId']
+
+        # create our numpy array mask
+        mask = build_mask(encodings=rle, labels=labels)
+
+        # we're actually doing semantic segmentation, so our second return value is a bit awkward
+        # we have one layer per class, rather than per instance... so it will always just be
+        # 1, 2, 3, 4. See the section on Data Shapes for the Labels.
+        return mask.astype(np.bool), np.array([1, 2, 3, 4], dtype=np.int32)
+
+
 ### Evaluation ###
 
 
