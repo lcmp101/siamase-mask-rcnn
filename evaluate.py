@@ -170,10 +170,11 @@ active_class_idx = np.array(coco_val.ACTIVE_CLASSES) - 1
 
 # Evaluate on the validation set
 print('starting evaluation ...')
+'''
 siamese_utils.evaluate_dataset(model, coco_val, coco_object, eval_type="bbox", 
                  dataset_type='coco', limit=1000, image_ids=None, 
                  class_index=active_class_idx, verbose=1)
-
+'''
 
 # In[12]:
 
@@ -188,16 +189,17 @@ active_class_idx = np.array(coco_val.ACTIVE_CLASSES) - 1
 
 # Evaluate on the validation set
 print('starting evaluation ...')
+'''
 siamese_utils.evaluate_dataset(model, coco_val, coco_object, eval_type="bbox", 
                  dataset_type='coco', limit=1000, image_ids=None, 
                  class_index=active_class_idx, verbose=1)
-
+'''
 
 # ### Visualization
 
 # In[13]:
 
-
+config.NUM_TARGETS = 1
 # Create model object in inference mode.
 model = siamese_model.SiameseMaskRCNN(mode="inference", model_dir=MODEL_DIR, config=config)
 model.load_checkpoint(checkpoint, training_schedule=train_schedule)
