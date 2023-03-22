@@ -209,7 +209,7 @@ model.load_checkpoint(checkpoint, training_schedule=train_schedule)
 
 
 # Select category
-category = 1
+category = 5
 image_id = np.random.choice(coco_val.category_image_index[category])   
 # Load target
 target = siamese_utils.get_one_target(category, coco_val, config)
