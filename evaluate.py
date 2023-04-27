@@ -11,7 +11,8 @@ import tensorflow as tf
 tf.logging.set_verbosity(tf.logging.INFO)
 sess_config = tf.ConfigProto()
 
-COCO_DATA = 'data/coco/'
+#COCO_DATA = 'data/coco/'
+COCO_DATA = 'data/severstal-steel-defect-detection'
 MASK_RCNN_MODEL_PATH = 'lib/Mask_RCNN/'
 
 if MASK_RCNN_MODEL_PATH not in sys.path:
@@ -50,15 +51,15 @@ MODEL_DIR = os.path.join(ROOT_DIR, "logs")
 
 
 # train_classes = coco_nopascal_classes
-train_classes = np.array(range(1,81))
-
+#train_classes = np.array(range(1,81))
+train_classes = np.array(range(1,5))
 
 # In[5]:
 
 
 # Load COCO/val dataset
 coco_val = siamese_utils.IndexedCocoDataset()
-coco_object = coco_val.load_coco(COCO_DATA, "val", year="2017", return_coco=True)
+coco_object = coco_val.load_coco(COCO_DATA, "val", year="26", return_coco=True)
 coco_val.prepare()
 coco_val.build_indices()
 coco_val.ACTIVE_CLASSES = train_classes
@@ -137,9 +138,14 @@ config.display()
 # When evaluationg intermediate steps the tranining schedule must be provided
 train_schedule = OrderedDict()
 if model_size == 'small':
+    '''
     train_schedule[1] = {"learning_rate": config.LEARNING_RATE, "layers": "heads"}
     train_schedule[120] = {"learning_rate": config.LEARNING_RATE, "layers": "4+"}
     train_schedule[160] = {"learning_rate": config.LEARNING_RATE/10, "layers": "all"}
+    '''
+    train_schedule[1] = {"learning_rate": config.LEARNING_RATE, "layers": "heads"}
+    train_schedule[25] = {"learning_rate": config.LEARNING_RATE, "layers": "all"}
+    train_schedule[50] = {"learning_rate": config.LEARNING_RATE / 10, "layers": "all"}
 elif model_size == 'large':
     train_schedule[1] = {"learning_rate": config.LEARNING_RATE, "layers": "heads"}
     train_schedule[240] = {"learning_rate": config.LEARNING_RATE, "layers": "all"}
@@ -151,7 +157,7 @@ elif model_size == 'large':
 
 # Select checkpoint
 if model_size == 'small':
-    checkpoint = 'checkpoints/small_siamese_mrcnn_0160.h5'
+    checkpoint = '/data/lmp/code/siamese-mask-rcnn/logs/siamese_mrcnn_small_coco_severstal/siamese_mrcnn_0005.h5'
 elif model_size == 'large':
     checkpoint = 'checkpoints/large_siamese_mrcnn_coco_full_0320.h5'
 
@@ -209,13 +215,26 @@ model.load_checkpoint(checkpoint, training_schedule=train_schedule)
 
 
 # Select category
-category = 5
-image_id = np.random.choice(coco_val.category_image_index[category])   
+category = 1
+#image_id = np.random.choice(coco_val.category_image_index[category])
+#image_id = 206
+image_id = 46
 # Load target
 target = siamese_utils.get_one_target(category, coco_val, config)
 # Load image
 image = coco_val.load_image(image_id)
 print("image_id", image_id)
+
+# Load and display random samples
+mask, class_ids =coco_val.load_mask(image_id)
+visualize.display_top_masks(image, mask, class_ids, coco_val.class_names)
+
+import pycocotools.mask as mask_util
+
+ann_item = coco_object.anns[image_id]
+mask = mask_util.decode(ann_item["segmentation"])
+plt.imshow(mask)
+
 
 
 # Run detection
