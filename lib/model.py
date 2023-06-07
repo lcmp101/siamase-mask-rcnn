@@ -29,6 +29,8 @@ from mrcnn import model as modellib
 from mrcnn import visualize  
 
 from lib import utils as siamese_utils
+from segmentation_models.metrics import IOUScore, FScore
+
 
 
 def build_resnet_model(config):
@@ -484,16 +486,23 @@ class SiameseMaskRCNN(modellib.MaskRCNN):
             model = ParallelModel(model, config.GPU_COUNT)
 
         return model
-    
-    
+
+
+
     def compile(self, learning_rate, momentum):
         """Gets the model ready for training. Adds losses, regularization, and
         metrics. Then calls the Keras compile() function.
         """
         # Optimizer object
+
         optimizer = keras.optimizers.SGD(
             lr=learning_rate, momentum=momentum,
             clipnorm=self.config.GRADIENT_CLIP_NORM)
+        '''
+        optimizer = keras.optimizers.Adam(
+            lr=learning_rate,
+            clipnorm=self.config.GRADIENT_CLIP_NORM)
+        '''
         # Add Losses
         # First, clear previously set losses to avoid duplication
         self.keras_model._losses = []
@@ -521,10 +530,25 @@ class SiameseMaskRCNN(modellib.MaskRCNN):
             if 'gamma' not in w.name and 'beta' not in w.name]
         self.keras_model.add_loss(tf.add_n(reg_losses))
 
+        # METRICS
+        iou_score = IOUScore()
+        f_score = FScore()
+
+        def dice_coef(y_true, y_pred, smooth=100):
+            y_true_f = K.flatten(y_true)
+            y_pred_f = K.flatten(y_pred)
+            intersection = K.sum(y_true_f * y_pred_f)
+            dice = (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+            return dice
+
         # Compile
         self.keras_model.compile(
             optimizer=optimizer,
-            loss=[None] * len(self.keras_model.outputs))
+            loss=[None] * len(self.keras_model.outputs),
+            metrics=[tf.keras.metrics.Accuracy(),tf.keras.metrics.AUC()]
+        )
+
+
 
         # Add metrics for losses
         for name in loss_names:
@@ -791,14 +815,85 @@ class SiameseMaskRCNN(modellib.MaskRCNN):
                 self.unmold_detections(detections[i], mrcnn_mask[i],
                                        image.shape, molded_images[i].shape,
                                        windows[i])
+
+            # Non-maxima supression
+            if final_scores.shape[0] >= 2:
+                nms = utils.non_max_suppression(final_rois, final_scores, 0.3)
+                final_rois = final_rois[nms]
+                final_scores = final_scores[nms]
+                final_masks = final_masks[:,:,nms]
+                final_class_ids = final_class_ids[nms]
             results.append({
                 "rois": final_rois,
                 "class_ids": final_class_ids,
                 "scores": final_scores,
                 "masks": final_masks,
             })
+
+
+
         return results
-    
+
+    def dett(self, images, verbose=0):
+        """Runs the detection pipeline.
+
+        images: List of images, potentially of different sizes.
+
+        Returns a list of dicts, one dict per image. The dict contains:
+        rois: [N, (y1, x1, y2, x2)] detection bounding boxes
+        class_ids: [N] int class IDs
+        scores: [N] float probability scores for the class IDs
+        masks: [H, W, N] instance binary masks
+        """
+
+        assert len(
+            images) == self.config.BATCH_SIZE, "len(images) must be equal to BATCH_SIZE"
+
+        if verbose:
+            modellib.log("Processing {} images".format(len(images)))
+            for image in images:
+                modellib.log("image", image)
+
+        # Mold inputs to format expected by the neural network
+        molded_images, image_metas, windows = self.mold_inputs(images)
+
+        # Validate image sizes
+        # All images in a batch MUST be of the same size
+        image_shape = molded_images[0].shape
+        for g in molded_images[1:]:
+            assert g.shape == image_shape, \
+                "After resizing, all images must have the same size. Check IMAGE_RESIZE_MODE and image sizes."
+
+        # Anchors
+        anchors = self.get_anchors(image_shape)
+        # Duplicate across the batch dimension because Keras requires it
+        # TODO: can this be optimized to avoid duplicating the anchors?
+        anchors = np.broadcast_to(anchors, (self.config.BATCH_SIZE,) + anchors.shape)
+
+        if verbose:
+            modellib.log("molded_images", molded_images)
+            modellib.log("image_metas", image_metas)
+            modellib.log("anchors", anchors)
+        # Run object detection
+        detections, _, _, mrcnn_mask, _, _, _ = \
+            self.keras_model.predict([molded_images, image_metas, anchors], verbose=0)
+        # Process detections
+        results = []
+        for i, image in enumerate(images):
+            final_rois, final_class_ids, final_scores, final_masks = \
+                self.unmold_detections(detections[i], mrcnn_mask[i],
+                                       image.shape, molded_images[i].shape,
+                                       windows[i])
+            results.append({
+                "rois": final_rois,
+                "class_ids": final_class_ids,
+                "scores": final_scores,
+                "masks": final_masks,
+            })
+
+        return results
+
+
     def get_imagenet_weights(self, pretraining='imagenet-1k'):
         """Selects ImageNet trained weights.
         Returns path to weights file.
