@@ -52,6 +52,7 @@ MODEL_DIR = os.path.join(ROOT_DIR, "logs")
 
 # train_classes = coco_nopascal_classes
 #train_classes = np.array(range(1,81))
+#train_classes = np.array(range(1,3))
 train_classes = np.array(range(1,5))
 
 # In[5]:
@@ -157,7 +158,8 @@ elif model_size == 'large':
 
 # Select checkpoint
 if model_size == 'small':
-    checkpoint = '/data/lmp/code/siamese-mask-rcnn/logs/siamese_mrcnn_small_coco_severstal/siamese_mrcnn_0005.h5'
+    #checkpoint = '/data/lmp/code/siamese-mask-rcnn/logs/siamese_mrcnn_small_coco_severstal4class/siamese_mrcnn_0035.h5'
+    checkpoint = '/data/lmp/code/siamese-mask-rcnn/logs/siamese_mrcnn_small_coco_severstal4classaug/siamese_mrcnn_0028.h5'
 elif model_size == 'large':
     checkpoint = 'checkpoints/large_siamese_mrcnn_coco_full_0320.h5'
 
@@ -184,7 +186,7 @@ siamese_utils.evaluate_dataset(model, coco_val, coco_object, eval_type="bbox",
 
 # In[12]:
 
-
+'''
 config.NUM_TARGETS = 5
 # Load and evaluate model
 # Create model object in inference mode.
@@ -195,7 +197,7 @@ active_class_idx = np.array(coco_val.ACTIVE_CLASSES) - 1
 
 # Evaluate on the validation set
 print('starting evaluation ...')
-'''
+
 siamese_utils.evaluate_dataset(model, coco_val, coco_object, eval_type="bbox", 
                  dataset_type='coco', limit=1000, image_ids=None, 
                  class_index=active_class_idx, verbose=1)
@@ -209,40 +211,50 @@ config.NUM_TARGETS = 1
 # Create model object in inference mode.
 model = siamese_model.SiameseMaskRCNN(mode="inference", model_dir=MODEL_DIR, config=config)
 model.load_checkpoint(checkpoint, training_schedule=train_schedule)
-
+print("model loaded")
 
 # In[17]:
 
 
 # Select category
-category = 1
-#image_id = np.random.choice(coco_val.category_image_index[category])
-image_id = 206
+category = 3
+#print(coco_val.category_image_index)
+image_id = np.random.choice(coco_val.category_image_index[category])
+info = coco_val.image_info[image_id]
+print("image_id", image_id)
+print("image ID: {}.{} ({}) {}".format(info["source"], info["id"], image_id, coco_val.image_reference(image_id)))
+#image_id = 206
 #image_id = 46
+#image_id = 406 #cat 1
 # Load target
-target = siamese_utils.get_one_target(category, coco_val, config)
+target, window, scale, padding, crop, random_image_id = siamese_utils.get_one_target(category, coco_val, config, return_all=True)
+print("target", random_image_id)
 # Load image
 image = coco_val.load_image(image_id)
-print("image_id", image_id)
-
-# Load and display random samples
 mask, class_ids =coco_val.load_mask(image_id)
-visualize.display_top_masks(image, mask, class_ids, coco_val.class_names)
+visualize.display_top_masks(image, image_id,mask, class_ids, coco_val.class_names)
 
+t_im = coco_val.load_image(random_image_id)
+# Load and display random samples
+mask, class_ids =coco_val.load_mask(random_image_id)
+visualize.display_top_masks(t_im, random_image_id,mask, class_ids, coco_val.class_names)
+
+'''
 import pycocotools.mask as mask_util
-
 ann_item = coco_object.anns[image_id]
 mask = mask_util.decode(ann_item["segmentation"])
 plt.imshow(mask)
-
+'''
 
 
 # Run detection
 results = model.detect([[target]], [image], verbose=1)
 r = results[0]
-# Display results
-siamese_utils.display_results(target, image, r['rois'], r['masks'], r['class_ids'], r['scores'])
 
+# Display results
+siamese_utils.display_results(target, image, r['rois'], r['masks'], r['class_ids'], r['scores'],show_mask=True, show_bbox=False)
+siamese_utils.display_results(target, image, r['rois'], r['masks'], r['class_ids'], r['scores'],show_mask=False, show_bbox=True)
+print(r['scores'])
 
 # In[ ]:
 

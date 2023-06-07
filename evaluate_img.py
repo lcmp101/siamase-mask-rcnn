@@ -24,7 +24,7 @@ from mrcnn import utils
 from mrcnn import model as modellib
 from mrcnn import visualize
 from mrcnn.model import log
-from mrcnn.visualize import display_images
+from mrcnn.visualize import display_images, display_differences
 
 from lib import utils as siamese_utils
 from lib import model as siamese_model
@@ -209,7 +209,7 @@ def get_ax(rows=1, cols=1, size=16):
     return ax
 
 # Select category
-category = 4
+category = 2
 #print(coco_val.category_image_index)
 
 
@@ -217,11 +217,11 @@ ids = nt([{image['id']:i} for i, image in enumerate(coco_val.image_info) if i in
 #print(coco_val.category_image_index[category])
 #print(ids)
 
-image_id = list(ids[0].values())[0]
-#image_id = list(np.random.choice(ids).values())[0]
-print(image_id)
+image_id = list(np.random.choice(ids).values())[0]
+
 #image_id = np.random.choice(coco_val.category_image_index[category])
 #image_id = 4283
+print(image_id)
 image, image_meta, gt_class_id, gt_bbox, gt_mask = modellib.load_image_gt(coco_val, config, image_id, use_mini_mask=False)
 info = coco_val.image_info[image_id]
 print("image ID: {}.{} ({}) {}".format(info["source"], info["id"], image_id, coco_val.image_reference(image_id)))
@@ -248,6 +248,8 @@ print(print("target", random_image_id))
 results = model.detect([[target]], [image], verbose=1)
 r = results[0]
 
+print(r['class_ids'])
+
 visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'],
                             coco_val.class_names, r['scores'], ax=get_ax(1), title="Ground truth and detections")
 
@@ -257,9 +259,12 @@ visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'],
                              show_bbox=False, show_mask=False,
                              title="Predictions")
 
+visualize.display_differences(image, gt_bbox, gt_class_id, gt_mask,
+                              r['rois'], r['class_ids'], r['scores'], r['masks'],coco_val.class_names,
+                              ax=get_ax(), show_box=False, show_mask=False, iou_threshold=0.5, score_threshold=0.5)
 
 
-siamese_utils.display_results(target, image, r['rois'], r['masks'], r['class_ids'], r['scores'],show_mask=False, show_bbox=True)
+#siamese_utils.display_results(target, image, r['rois'], r['masks'], r['class_ids'], r['scores'],show_mask=False, show_bbox=True)
 
 #target, window, scale, padding, crop, random_image_id = siamese_utils.get_one_target(category, coco_val, config, return_all=True)
 #results = model.detect([[target]], [image], verbose=1)
@@ -275,8 +280,38 @@ utils.compute_ap_range(gt_bbox, gt_class_id, gt_mask,
                        r['rois'], r['class_ids'], r['scores'], r['masks'],
                        verbose=1)
 
-visualize.display_differences(image,gt_bbox, gt_class_id, gt_mask,
-                              r['rois'], r['class_ids'], r['scores'], r['masks'],coco_val.class_names,
-                              ax=get_ax(), show_box=False, show_mask=False, iou_threshold=0.5, score_threshold=0.5)
 
 
+# Get anchors and convert to pixel coordinates
+anchors = model.get_anchors(image.shape)
+anchors = utils.denorm_boxes(anchors, image.shape[:2])
+log("anchors", anchors)
+
+# Generate RPN trainig targets
+# target_rpn_match is 1 for positive anchors, -1 for negative anchors
+# and 0 for neutral anchors.
+target_rpn_match, target_rpn_bbox = modellib.build_rpn_targets(
+    image.shape, anchors, gt_class_id, gt_bbox, model.config)
+log("target_rpn_match", target_rpn_match)
+log("target_rpn_bbox", target_rpn_bbox)
+
+positive_anchor_ix = np.where(target_rpn_match[:] == 1)[0]
+negative_anchor_ix = np.where(target_rpn_match[:] == -1)[0]
+neutral_anchor_ix = np.where(target_rpn_match[:] == 0)[0]
+positive_anchors = anchors[positive_anchor_ix]
+negative_anchors = anchors[negative_anchor_ix]
+neutral_anchors = anchors[neutral_anchor_ix]
+log("positive_anchors", positive_anchors)
+log("negative_anchors", negative_anchors)
+log("neutral anchors", neutral_anchors)
+
+# Apply refinement deltas to positive anchors
+refined_anchors = utils.apply_box_deltas(
+    positive_anchors,
+    target_rpn_bbox[:positive_anchors.shape[0]] * model.config.RPN_BBOX_STD_DEV)
+log("refined_anchors", refined_anchors, )
+
+visualize.draw_boxes(image, ax=get_ax(), boxes=positive_anchors, refined_boxes=refined_anchors)
+
+
+siamese_utils.display_results(target, image, r['rois'], r['masks'], r['class_ids'], r['scores'],show_mask=False, show_bbox=True)
