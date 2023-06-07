@@ -209,7 +209,7 @@ def get_ax(rows=1, cols=1, size=16):
     return ax
 
 # Select category
-category = 2
+category = 1
 #print(coco_val.category_image_index)
 
 
@@ -217,7 +217,8 @@ ids = nt([{image['id']:i} for i, image in enumerate(coco_val.image_info) if i in
 #print(coco_val.category_image_index[category])
 #print(ids)
 
-image_id = list(np.random.choice(ids).values())[0]
+image_id = list(ids[5].values())[0]
+#image_id = list(np.random.choice(ids).values())[0]
 
 #image_id = np.random.choice(coco_val.category_image_index[category])
 #image_id = 4283
@@ -247,8 +248,8 @@ print(print("target", random_image_id))
 #results = model.dett(images=[image], verbose=1)
 results = model.detect([[target]], [image], verbose=1)
 r = results[0]
-
-print(r['class_ids'])
+print(r)
+#print(r['class_ids'])
 
 visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'],
                             coco_val.class_names, r['scores'], ax=get_ax(1), title="Ground truth and detections")
@@ -276,9 +277,17 @@ log("gt_mask", gt_mask)
 '''
 
 # Compute AP over range 0.5 to 0.95 and print it
-utils.compute_ap_range(gt_bbox, gt_class_id, gt_mask,
-                       r['rois'], r['class_ids'], r['scores'], r['masks'],
-                       verbose=1)
+AP, precisions, recalls, overlaps = utils.compute_ap(gt_bbox, gt_class_id, gt_mask,
+                                          r['rois'], r['class_ids'], r['scores'], r['masks'])
+visualize.plot_precision_recall(AP, precisions, recalls)
+
+
+
+# Grid of ground truth objects and their predictions
+visualize.plot_overlaps(gt_class_id, r['class_ids'], r['scores'],
+                        overlaps, coco_val.class_names)
+
+
 
 
 
@@ -312,6 +321,13 @@ refined_anchors = utils.apply_box_deltas(
 log("refined_anchors", refined_anchors, )
 
 visualize.draw_boxes(image, ax=get_ax(), boxes=positive_anchors, refined_boxes=refined_anchors)
-
+#print(r)
+'''
+nms = utils.non_max_suppression(r['rois'], r['scores'], 0.3)
+print(r['rois'])
+print("nms", nms)
+r['rois'] = r['rois'][nms]
+print(r['rois'])
+'''
 
 siamese_utils.display_results(target, image, r['rois'], r['masks'], r['class_ids'], r['scores'],show_mask=False, show_bbox=True)
