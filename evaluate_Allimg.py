@@ -221,147 +221,36 @@ category = 4
 
 ids = nt([{image['id']:i} for i, image in enumerate(coco_val.image_info) if i in coco_val.category_image_index[category]])
 #print(coco_val.category_image_index[category])
-#print(ids)
+print(ids)
 
 # para bff6cdfad - ids[13] cat 2
 #image_id = list(ids[13].values())[0]
 
-image_id = list(ids[0].values())[0]
-#image_id = list(np.random.choice(ids).values())[0]
+dice1 = []
+dice2 = []
+results = []
+length = len(ids)
+for i in range(length):
+    image_id = list(ids[i].values())[0]
+    print(image_id)
+    # Load GT data
+    image, _, gt_class_ids, _, gt_mask = modellib.load_image_gt(coco_val, model.config, image_id, use_mini_mask=False)
 
-#image_id = np.random.choice(coco_val.category_image_index[category])
+    # Load target
+    target, _, _, _, _, random_image_id, box_ind = siamese_utils.get_same_target(image_id, category, coco_val, config, return_all=True)
+    # Run detection
+    results = model.detect([[target]], [image], verbose=1)
+    r = results[0]
 
-print(image_id)
-image, image_meta, gt_class_id, gt_bbox, gt_mask = modellib.load_image_gt(coco_val, config, image_id, use_mini_mask=False)
-info = coco_val.image_info[image_id]
-print("image ID: {}.{} ({}) {}".format(info["source"], info["id"], image_id, coco_val.image_reference(image_id)))
-print("Original image shape: ", modellib.parse_image_meta(image_meta[np.newaxis,...])["original_image_shape"][0])
+    dice1.append(metrics.dice_coef(gt_mask, r['masks'], box_ind))
+    dice2.append(metrics.dice_coef2(gt_mask, r['masks'], box_ind))
 
-log("original_image", image)
-log("image_meta", image_meta)
-log("gt_class_id", gt_class_id)
-log("gt_bbox", gt_bbox)
-log("gt_mask", gt_mask)
+print(dice1)
 
-# Display GT
-visualize.display_instances(image, gt_bbox, gt_mask, gt_class_id,
-                             coco_val.class_names, ax=get_ax(1),
-                             show_bbox=False, show_mask=False,
-                             title="Ground Truth")
+dice_total = np.sum(dice1)
+print(dice_total)
+dice_total = np.sum(dice1)/length
+print(dice_total)
 
-visualize.display_instances(image, gt_bbox, gt_mask, gt_class_id,
-                             coco_val.class_names, ax=get_ax(1),
-                             show_bbox=True, show_mask=False,
-                             title="Ground Truth-bbox")
-
-
-target, window, scale, padding, crop, random_image_id, box_ind = siamese_utils.get_same_target(image_id, category, coco_val, config, return_all=True)
-print("target", random_image_id)
-
-# Run object detection
-#results = model.dett(images=[image], verbose=1)
-results = model.detect([[target]], [image], verbose=1)
-r = results[0]
-#print(r)
-#print(r['class_ids'])
-log("pred_box", r['rois'])
-log("pred_mask", r['masks'])
-
-visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'],
-                            coco_val.class_names, r['scores'], ax=get_ax(1), title="Predictions-bbox")
-
-# Display predictions only
-visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'],
-                             coco_val.class_names, r['scores'], ax=get_ax(1),
-                             show_bbox=False, show_mask=False,
-                             title="Predictions")
-
-visualize.display_differences(image, gt_bbox, gt_class_id, gt_mask,
-                              r['rois'], r['class_ids'], r['scores'], r['masks'],coco_val.class_names,
-                              ax=get_ax(), show_box=False, show_mask=False, iou_threshold=0.5, score_threshold=0.5)
-
-
-#siamese_utils.display_results(target, image, r['rois'], r['masks'], r['class_ids'], r['scores'],show_mask=False, show_bbox=True)
-
-
-# Compute AP over range 0.5 to 0.95 and print it
-AP, precisions, recalls, overlaps = utils.compute_ap(gt_bbox, gt_class_id, gt_mask,
-                                          r['rois'], r['class_ids'], r['scores'], r['masks'])
-print("precion_AP", precisions)
-print("recalls", recalls)
-#print("AP", AP)
-#visualize.plot_precision_recall(AP, precisions, recalls)
-
-# Grid of ground truth objects and their predictions -> matriz the good y wrong
-#visualize.plot_overlaps(gt_class_id, r['class_ids'], r['scores'],overlaps, coco_val.class_names)
-
-
-#Metrics
-dice1 = metrics.dice_coef3(gt_mask, r['masks'], box_ind)
-#dice1 = metrics.dice_coef3(gt_mask, r['masks'], coco_val.class_ids[category])
-print("dice", dice1)
-dice2 = metrics.dice_coef2(gt_mask, r['masks'], box_ind)
-print("dice", dice2)
-
-prec = metrics.precision_score(gt_mask, r['masks'], box_ind)
-print("prec", prec)
-rec = metrics.recall_score(gt_mask, r['masks'], box_ind)
-print("recall", rec)
-iou = metrics.iou(gt_mask, r['masks'], box_ind)
-print("iou", iou)
-acc = metrics.accuracy(gt_mask, r['masks'], box_ind)
-print("acc", acc)
-
-
-
-# Get anchors and convert to pixel coordinates
-anchors = model.get_anchors(image.shape)
-anchors = utils.denorm_boxes(anchors, image.shape[:2])
-log("anchors", anchors)
-
-# Generate RPN trainig targets
-# target_rpn_match is 1 for positive anchors, -1 for negative anchors
-# and 0 for neutral anchors.
-target_rpn_match, target_rpn_bbox = modellib.build_rpn_targets(
-    image.shape, anchors, gt_class_id, gt_bbox, model.config)
-log("target_rpn_match", target_rpn_match)
-log("target_rpn_bbox", target_rpn_bbox)
-
-positive_anchor_ix = np.where(target_rpn_match[:] == 1)[0]
-negative_anchor_ix = np.where(target_rpn_match[:] == -1)[0]
-neutral_anchor_ix = np.where(target_rpn_match[:] == 0)[0]
-positive_anchors = anchors[positive_anchor_ix]
-negative_anchors = anchors[negative_anchor_ix]
-neutral_anchors = anchors[neutral_anchor_ix]
-log("positive_anchors", positive_anchors)
-log("negative_anchors", negative_anchors)
-log("neutral anchors", neutral_anchors)
-
-# Apply refinement deltas to positive anchors
-refined_anchors = utils.apply_box_deltas(
-    positive_anchors,
-    target_rpn_bbox[:positive_anchors.shape[0]] * model.config.RPN_BBOX_STD_DEV)
-log("refined_anchors", refined_anchors, )
-
-visualize.draw_boxes(image, ax=get_ax(), boxes=positive_anchors, refined_boxes=refined_anchors)
-#print(r)
-'''
-nms = utils.non_max_suppression(r['rois'], r['scores'], 0.3)
-print(r['rois'])
-print("nms", nms)
-r['rois'] = r['rois'][nms]
-print(r['rois'])
-'''
-
-siamese_utils.display_results(target, image, r['rois'], r['masks'], r['class_ids'], r['scores'],show_mask=False, show_bbox=True)
-
-'''
-image_rd = list(np.random.choice(ids).values())[0]
-imager, image_metar, gt_class_idr, gt_bboxr, gt_maskr = modellib.load_image_gt(coco_val, config, image_rd, use_mini_mask=False)
-#imager = coco_val.load_image(image_rd)
-print()
-print("image IDrd: {}.{} ({}) {}".format(info["source"], info["id"], image_rd, coco_val.image_reference(image_rd)))
-resultsrd = model.detect([[target]], [imager], verbose=1)
-rd = resultsrd[0]
-siamese_utils.display_results(target, imager, rd['rois'], rd['masks'], rd['class_ids'], rd['scores'],show_mask=False, show_bbox=True)
-'''
+dice_t2 = np.sum(dice2)/length
+print(dice_t2)
