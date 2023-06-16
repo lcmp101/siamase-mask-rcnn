@@ -257,6 +257,7 @@ visualize.display_instances(image, gt_bbox, gt_mask, gt_class_id,
 
 target, window, scale, padding, crop, random_image_id, box_ind = siamese_utils.get_same_target(image_id, category, coco_val, config, return_all=True)
 print("target", random_image_id)
+print("target", box_ind)
 
 # Run object detection
 #results = model.dett(images=[image], verbose=1)
@@ -295,21 +296,24 @@ print("recalls", recalls)
 # Grid of ground truth objects and their predictions -> matriz the good y wrong
 #visualize.plot_overlaps(gt_class_id, r['class_ids'], r['scores'],overlaps, coco_val.class_names)
 
+b = np.where(gt_class_id == category)[0]
+print(b)
+print(b[0])
 
 #Metrics
-dice1 = metrics.dice_coef3(gt_mask, r['masks'], box_ind)
-#dice1 = metrics.dice_coef3(gt_mask, r['masks'], coco_val.class_ids[category])
+#dice1 = metrics.dice_coef3(gt_mask, r['masks'], box_ind)
+dice1 = metrics.dice_coef3(gt_mask, r['masks'], b)
 print("dice", dice1)
-dice2 = metrics.dice_coef2(gt_mask, r['masks'], box_ind)
-print("dice", dice2)
+#dice2 = metrics.dice_coef2(gt_mask, r['masks'], box_ind)
+#print("dice", dice2)
 
-prec = metrics.precision_score(gt_mask, r['masks'], box_ind)
+prec = metrics.precision_score(gt_mask, r['masks'],b)
 print("prec", prec)
-rec = metrics.recall_score(gt_mask, r['masks'], box_ind)
+rec = metrics.recall_score(gt_mask, r['masks'], b)
 print("recall", rec)
-iou = metrics.iou(gt_mask, r['masks'], box_ind)
+iou = metrics.iou(gt_mask, r['masks'], b)
 print("iou", iou)
-acc = metrics.accuracy(gt_mask, r['masks'], box_ind)
+acc = metrics.accuracy(gt_mask, r['masks'], b)
 print("acc", acc)
 
 

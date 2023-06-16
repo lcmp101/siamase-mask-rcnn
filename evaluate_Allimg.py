@@ -221,7 +221,7 @@ category = 4
 
 ids = nt([{image['id']:i} for i, image in enumerate(coco_val.image_info) if i in coco_val.category_image_index[category]])
 #print(coco_val.category_image_index[category])
-print(ids)
+#print(ids)
 
 # para bff6cdfad - ids[13] cat 2
 #image_id = list(ids[13].values())[0]
@@ -229,7 +229,20 @@ print(ids)
 dice1 = []
 dice2 = []
 results = []
+pre = []
+acc = []
+rec = []
+iou = []
 length = len(ids)
+
+np.random.seed(1)
+
+image_id = list(ids[0].values())[0]
+image, _, gt_class_ids, _, gt_mask = modellib.load_image_gt(coco_val, model.config, image_id, use_mini_mask=False)
+# Load target
+target, _, _, _, _, random_image_id, box_ind = siamese_utils.get_same_target(image_id, category, coco_val, config, return_all=True)
+
+
 for i in range(length):
     image_id = list(ids[i].values())[0]
     print(image_id)
@@ -237,20 +250,108 @@ for i in range(length):
     image, _, gt_class_ids, _, gt_mask = modellib.load_image_gt(coco_val, model.config, image_id, use_mini_mask=False)
 
     # Load target
-    target, _, _, _, _, random_image_id, box_ind = siamese_utils.get_same_target(image_id, category, coco_val, config, return_all=True)
+    #target, _, _, _, _, random_image_id, box_ind = siamese_utils.get_same_target(image_id, category, coco_val, config, return_all=True)
     # Run detection
     results = model.detect([[target]], [image], verbose=1)
     r = results[0]
 
-    dice1.append(metrics.dice_coef(gt_mask, r['masks'], box_ind))
+    b = np.where(gt_class_ids == category)[0]
+
+    dice1.append(metrics.dice_coef(gt_mask, r['masks'], b))
     dice2.append(metrics.dice_coef2(gt_mask, r['masks'], box_ind))
-
+    pre.append(metrics.precision_score(gt_mask, r['masks'], b))
+    rec.append(metrics.recall_score(gt_mask, r['masks'], b))
+    acc.append(metrics.accuracy(gt_mask, r['masks'], b))
+    iou.append(metrics.iou(gt_mask, r['masks'], b))
+'''
 print(dice1)
-
-dice_total = np.sum(dice1)
-print(dice_total)
 dice_total = np.sum(dice1)/length
 print(dice_total)
-
 dice_t2 = np.sum(dice2)/length
 print(dice_t2)
+'''
+
+d_t1 = []
+d_t2 = []
+d_pre = []
+d_rec = []
+d_acc = []
+d_iou = []
+
+length = len(ids)
+for run in range(5):
+    print('\t*** Evaluation run {} ***'.format(run + 1))
+    target, _, _, _, _, random_image_id, box_ind = siamese_utils.get_one_target(category, coco_val, config, return_all=True)
+    print("RD id", random_image_id)
+
+    dice1 = []
+    dice2 = []
+    results = []
+    pre = []
+    acc = []
+    rec = []
+    iou = []
+    for i in range(length):
+        image_id = list(ids[i].values())[0]
+        print(image_id)
+        # Load GT data
+        image, _, gt_class_ids, _, gt_mask = modellib.load_image_gt(coco_val, model.config, image_id, use_mini_mask=False)
+
+        # Load target
+        #target, _, _, _, _, random_image_id, box_ind = siamese_utils.get_same_target(image_id, category, coco_val, config, return_all=True)
+        # Run detection
+        results = model.detect([[target]], [image], verbose=1)
+        r = results[0]
+        b = np.where(gt_class_ids == category)[0]
+
+        dice1.append(metrics.dice_coef(gt_mask, r['masks'], b))
+        dice2.append(metrics.dice_coef2(gt_mask, r['masks'], box_ind))
+
+        pre.append(metrics.precision_score(gt_mask, r['masks'], b))
+        rec.append(metrics.recall_score(gt_mask, r['masks'], b))
+        acc.append(metrics.accuracy(gt_mask, r['masks'], b))
+        iou.append(metrics.iou(gt_mask, r['masks'], b))
+
+    dice_total = np.sum(dice1) / length
+    print(dice_total)
+    d_t1.append(dice_total)
+
+    dice_t2 = np.sum(dice2) / length
+    print(dice_t2)
+    d_t2.append(dice_t2)
+
+    pre_total = np.sum(pre) / length
+    rec_total = np.sum(rec) / length
+    acc_total = np.sum(acc) / length
+    iou_total = np.sum(iou) / length
+    d_pre.append(pre_total)
+    d_rec.append(rec_total)
+    d_acc.append(acc_total)
+    d_iou.append(iou_total)
+
+    print('\n' * 5, end='')
+
+print(ids)
+print("Dices 1", dice1)
+dice_total = np.sum(dice1)/length
+print("Dices 1 total",dice_total)
+print("Dices 2", dice2)
+dice_t2 = np.sum(dice2)/length
+print("Dices 2", dice_t2)
+
+pre_total = np.sum(pre)/length
+rec_total = np.sum(rec)/length
+acc_total = np.sum(acc)/length
+iou_total = np.sum(iou)/length
+print("Prec", pre_total)
+print("Rec", rec_total)
+print("Acc", acc_total)
+print("IoU", iou_total)
+
+print("5 random images")
+print("dice", d_t1)
+print("D2", d_t2)
+print("pre", d_pre)
+print("rec", d_rec)
+print("acc", d_acc)
+print("iou", d_iou)
