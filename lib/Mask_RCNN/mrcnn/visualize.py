@@ -142,7 +142,8 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             score = scores[i] if scores is not None else None
             label = class_names[class_id]
             x = random.randint(x1, (x1 + x2) // 2)
-            caption = "{} {:.3f}".format(label, score) if score else label
+            caption = "{:.3f}".format(score) if score else label
+            #caption = "{} {:.3f}".format(label, score) if score else label
         else:
             caption = captions[i]
         ax.text(x1, y1 + 8, caption,
@@ -206,6 +207,119 @@ def display_differences(image,
         colors=colors, captions=captions,
         title=title)
 
+
+def display_instances2(image, boxes, masks, class_ids, class_names,
+                      scores=None, title="",
+                      figsize=(16, 16), ax=None,
+                      show_mask=True, show_bbox=True,
+                      colors=None):
+    """
+    boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
+    masks: [height, width, num_instances]
+    class_ids: [num_instances]
+    class_names: list of class names of the dataset
+    scores: (optional) confidence scores for each box
+    title: (optional) Figure title
+    show_mask, show_bbox: To show masks and bounding boxes or not
+    figsize: (optional) the size of the image
+    colors: (optional) An array or colors to use with each object
+    captions: (optional) A list of strings to use as captions for each object
+    """
+    # Number of instances
+    N = boxes.shape[0]
+    if not N:
+        print("\n*** No instances to display *** \n")
+    else:
+        assert boxes.shape[0] == masks.shape[-1] == class_ids.shape[0]
+
+    # If no axis is passed, create one and automatically call show()
+    auto_show = False
+    if not ax:
+        _, ax = plt.subplots(1, figsize=figsize)
+        auto_show = True
+
+    # Generate random colors
+    colors = colors or random_colors(N)
+
+    # Show area outside image boundaries.
+    height, width = image.shape[:2]
+    ax.set_ylim(height + 10, -10)
+    ax.set_xlim(-10, width + 10)
+    ax.axis('off')
+    ax.set_title(title)
+
+    masked_image = image.astype(np.uint32).copy()
+    for i in range(N):
+        color = colors[i]
+
+        # Bounding box
+        if not np.any(boxes[i]):
+            # Skip this instance. Has no bbox. Likely lost in image cropping.
+            continue
+        y1, x1, y2, x2 = boxes[i]
+        if show_bbox:
+            p = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2,
+                                alpha=0.7, linestyle="dashed",
+                                edgecolor=color, facecolor='none')
+            ax.add_patch(p)
+
+
+        # Mask
+        mask = masks[:, :, i]
+        if show_mask:
+            masked_image = apply_mask(masked_image, mask, color)
+
+        # Mask Polygon
+        # Pad to ensure proper polygons for masks that touch image edges.
+        padded_mask = np.zeros(
+            (mask.shape[0] + 2, mask.shape[1] + 2), dtype=np.uint8)
+        padded_mask[1:-1, 1:-1] = mask
+        contours = find_contours(padded_mask, 0.5)
+        for verts in contours:
+            # Subtract the padding and flip (y, x) to (x, y)
+            verts = np.fliplr(verts) - 1
+            p = Polygon(verts, facecolor="none", edgecolor=color)
+            ax.add_patch(p)
+    ax.imshow(masked_image.astype(np.uint8))
+    if auto_show:
+        plt.show()
+
+
+def display_differences2(image,
+                        gt_box, gt_class_id, gt_mask,
+                        pred_box, pred_class_id, pred_score, pred_mask,
+                        class_names, title="", ax=None,
+                        show_mask=True, show_box=True,
+                        iou_threshold=0.5, score_threshold=0.5):
+    """Display ground truth and prediction instances on the same image."""
+    # Match predictions to ground truth
+    gt_match, pred_match, overlaps = utils.compute_matches(
+        gt_box, gt_class_id, gt_mask,
+        pred_box, pred_class_id, pred_score, pred_mask,
+        iou_threshold=iou_threshold, score_threshold=score_threshold)
+    # Ground truth = green. Predictions = red
+    colors = [(0, 1, 0, .8)] * len(gt_match)\
+           + [(1, 0, 0, 1)] * len(pred_match)
+    # Concatenate GT and predictions
+    class_ids = np.concatenate([gt_class_id, pred_class_id])
+    scores = np.concatenate([np.zeros([len(gt_match)]), pred_score])
+    boxes = np.concatenate([gt_box, pred_box])
+    masks = np.concatenate([gt_mask, pred_mask], axis=-1)
+    # Captions per instance show score/IoU
+    captions = ["" for m in gt_match] + ["{:.2f} / {:.2f}".format(
+        pred_score[i],
+        (overlaps[i, int(pred_match[i])]
+            if pred_match[i] > -1 else overlaps[i].max()))
+            for i in range(len(pred_match))]
+    # Set title if not provided
+    title = title or "Ground Truth and Detections\n GT=green, pred=red, captions: score/IoU"
+    # Display
+    display_instances2(
+        image,
+        boxes, masks, class_ids,
+        class_names, scores, ax=ax,
+        show_bbox=show_box, show_mask=show_mask,
+        colors=colors, title=title)
 
 def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10):
     """
@@ -281,11 +395,12 @@ def draw_box(image, box, color):
     return image
 
 
-def display_top_masks(image, mask, class_ids, class_names, limit=4):
+def display_top_masks(image, image_id, mask, class_ids, class_names, limit=4):
     """Display the given image and the top few class masks."""
     to_display = []
     titles = []
     to_display.append(image)
+    titles.append(image_id)
     titles.append("H x W={}x{}".format(image.shape[0], image.shape[1]))
     # Pick top prominent classes in this image
     unique_class_ids = np.unique(class_ids)

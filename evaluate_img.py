@@ -43,6 +43,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from collections import OrderedDict
 from natsort import natsorted as nt
+import sklearn
 
 # Root directory of the project
 ROOT_DIR = os.getcwd()
@@ -67,8 +68,8 @@ train_classes = np.array(range(1,3))
 # Load COCO/val dataset
 coco_val = siamese_utils.IndexedCocoDataset()
 #coco_object = coco_val.load_coco(COCO_DATA, "val", year="3vAll", return_coco=True)
-#coco_object = coco_val.load_coco(COCO_DATA, "val", year="26v2", return_coco=True)
-coco_object = coco_val.load_coco(COCO_DATA, "val", year="test26v2", return_coco=True)
+coco_object = coco_val.load_coco(COCO_DATA, "val", year="26v2", return_coco=True)
+#coco_object = coco_val.load_coco(COCO_DATA, "val", year="test26v2", return_coco=True)
 coco_val.prepare()
 coco_val.build_indices()
 coco_val.ACTIVE_CLASSES = train_classes
@@ -215,19 +216,19 @@ def get_ax(rows=1, cols=1, size=16):
     return ax
 
 # Select category
-category = 4
+category = 2
 #print(coco_val.category_image_index)
 
 
 ids = nt([{image['id']:i} for i, image in enumerate(coco_val.image_info) if i in coco_val.category_image_index[category]])
 #print(coco_val.category_image_index[category])
-#print(ids)
-
+print(ids)
+# cc59639b2.jpg
 # para bff6cdfad - ids[13] cat 2
 #image_id = list(ids[13].values())[0]
-
-image_id = list(ids[0].values())[0]
-#image_id = list(np.random.choice(ids).values())[0]
+#image_id = list(ids[374].values())[0]
+#image_id = list(ids[0].values())[0]
+image_id = list(np.random.choice(ids).values())[0]
 
 #image_id = np.random.choice(coco_val.category_image_index[category])
 
@@ -274,13 +275,16 @@ visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'],
 # Display predictions only
 visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'],
                              coco_val.class_names, r['scores'], ax=get_ax(1),
-                             show_bbox=False, show_mask=False,
+                             show_bbox=True, show_mask=False,
                              title="Predictions")
+
+visualize.display_differences2(image, gt_bbox, gt_class_id, gt_mask,
+                              r['rois'], r['class_ids'], r['scores'], r['masks'],coco_val.class_names,
+                              ax=get_ax(), show_box=False, show_mask=False, iou_threshold=0.5, score_threshold=0.5)
 
 visualize.display_differences(image, gt_bbox, gt_class_id, gt_mask,
                               r['rois'], r['class_ids'], r['scores'], r['masks'],coco_val.class_names,
                               ax=get_ax(), show_box=False, show_mask=False, iou_threshold=0.5, score_threshold=0.5)
-
 
 #siamese_utils.display_results(target, image, r['rois'], r['masks'], r['class_ids'], r['scores'],show_mask=False, show_bbox=True)
 
@@ -297,12 +301,12 @@ print("recalls", recalls)
 #visualize.plot_overlaps(gt_class_id, r['class_ids'], r['scores'],overlaps, coco_val.class_names)
 
 b = np.where(gt_class_id == category)[0]
-print(b)
-print(b[0])
+#print(b)
+#print(b[0])
 
 #Metrics
 #dice1 = metrics.dice_coef3(gt_mask, r['masks'], box_ind)
-dice1 = metrics.dice_coef3(gt_mask, r['masks'], b)
+dice1 = metrics.dice_coef(gt_mask, r['masks'], b)
 print("dice", dice1)
 #dice2 = metrics.dice_coef2(gt_mask, r['masks'], box_ind)
 #print("dice", dice2)
@@ -315,7 +319,10 @@ iou = metrics.iou(gt_mask, r['masks'], b)
 print("iou", iou)
 acc = metrics.accuracy(gt_mask, r['masks'], b)
 print("acc", acc)
-
+ac2 = metrics.acc2(gt_mask, r['masks'], b)
+print("ac2", ac2)
+ac3 = metrics.acc3(gt_mask, r['masks'], b)
+print("ac3", ac3)
 
 
 # Get anchors and convert to pixel coordinates
@@ -359,13 +366,36 @@ print(r['rois'])
 
 siamese_utils.display_results(target, image, r['rois'], r['masks'], r['class_ids'], r['scores'],show_mask=False, show_bbox=True)
 
-'''
+# 0d4eae8de.jpg
 image_rd = list(np.random.choice(ids).values())[0]
+#image_rd = list(ids[263].values())[0]
 imager, image_metar, gt_class_idr, gt_bboxr, gt_maskr = modellib.load_image_gt(coco_val, config, image_rd, use_mini_mask=False)
 #imager = coco_val.load_image(image_rd)
-print()
+print(image_metar)
 print("image IDrd: {}.{} ({}) {}".format(info["source"], info["id"], image_rd, coco_val.image_reference(image_rd)))
+
+
+class_ind = np.where(gt_class_idr == category)[0]
+print(class_ind)
+gt = gt_maskr[:,:,class_ind]
+
 resultsrd = model.detect([[target]], [imager], verbose=1)
 rd = resultsrd[0]
+
+# Display GT
+visualize.display_instances(imager, gt_bboxr, gt_maskr, gt_class_idr,
+                             coco_val.class_names, ax=get_ax(1),
+                             show_bbox=False, show_mask=False,
+                             title="Ground Truth")
+
+visualize.display_instances(imager, rd['rois'], rd['masks'], rd['class_ids'],
+                             coco_val.class_names, rd['scores'], ax=get_ax(1),
+                             show_bbox=True, show_mask=False,
+                             title="Predictions")
+
+visualize.display_differences2(imager, gt_bboxr, gt_class_idr, gt,
+                              rd['rois'], rd['class_ids'], rd['scores'], rd['masks'], coco_val.class_names,
+                              ax=get_ax(), show_box=False, show_mask=False, iou_threshold=0.5, score_threshold=0.5)
+
+print(rd['class_ids'])
 siamese_utils.display_results(target, imager, rd['rois'], rd['masks'], rd['class_ids'], rd['scores'],show_mask=False, show_bbox=True)
-'''

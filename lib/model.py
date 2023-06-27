@@ -817,21 +817,20 @@ class SiameseMaskRCNN(modellib.MaskRCNN):
                                        windows[i])
 
             # Non-maxima supression
+
             if final_scores.shape[0] >= 2:
                 nms = utils.non_max_suppression(final_rois, final_scores, 0.3)
                 final_rois = final_rois[nms]
                 final_scores = final_scores[nms]
                 final_masks = final_masks[:,:,nms]
                 final_class_ids = final_class_ids[nms]
+
             results.append({
                 "rois": final_rois,
                 "class_ids": final_class_ids,
                 "scores": final_scores,
                 "masks": final_masks,
             })
-
-
-
         return results
 
     def dett(self, images, verbose=0):

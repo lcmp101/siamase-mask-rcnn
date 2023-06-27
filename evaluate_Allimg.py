@@ -68,7 +68,8 @@ train_classes = np.array(range(1,3))
 coco_val = siamese_utils.IndexedCocoDataset()
 #coco_object = coco_val.load_coco(COCO_DATA, "val", year="3vAll", return_coco=True)
 #coco_object = coco_val.load_coco(COCO_DATA, "val", year="26v2", return_coco=True)
-coco_object = coco_val.load_coco(COCO_DATA, "val", year="test26v2", return_coco=True)
+#coco_object = coco_val.load_coco(COCO_DATA, "val", year="test26v2", return_coco=True)
+coco_object = coco_val.load_coco(COCO_DATA, "val", year="test806aug", return_coco=True)
 coco_val.prepare()
 coco_val.build_indices()
 coco_val.ACTIVE_CLASSES = train_classes
@@ -168,9 +169,9 @@ elif model_size == 'large':
 # Select checkpoint
 if model_size == 'small':
     #checkpoint = '/data/lmp/code/siamese-mask-rcnn/logs/siamese_mrcnn_small_coco_severstal3vall/siamese_mrcnn_0026.h5'
-    checkpoint = '/data/lmp/code/siamese-mask-rcnn/logs/siamese_mrcnn_small_coco_severstal4classv2/siamese_mrcnn_0050.h5'
+    #checkpoint = '/data/lmp/code/siamese-mask-rcnn/logs/siamese_mrcnn_small_coco_severstal4classv2/siamese_mrcnn_0050.h5'
     #checkpoint = '/data/lmp/code/siamese-mask-rcnn/logs/siamese_mrcnn_small_coco_severstal4class/siamese_mrcnn_0035.h5'
-    #checkpoint = '/data/lmp/code/siamese-mask-rcnn/logs/siamese_mrcnn_small_coco_severstal4classaug/siamese_mrcnn_0028.h5'
+    checkpoint = '/data/lmp/code/siamese-mask-rcnn/logs/siamese_mrcnn_small_coco_severstalaug2/siamese_mrcnn_0048.h5'
 elif model_size == 'large':
     checkpoint = 'checkpoints/large_siamese_mrcnn_coco_full_0320.h5'
 
@@ -215,7 +216,7 @@ def get_ax(rows=1, cols=1, size=16):
     return ax
 
 # Select category
-category = 4
+category = 2
 #print(coco_val.category_image_index)
 
 
@@ -231,6 +232,7 @@ dice2 = []
 results = []
 pre = []
 acc = []
+ac2 = []
 rec = []
 iou = []
 length = len(ids)
@@ -242,7 +244,7 @@ image, _, gt_class_ids, _, gt_mask = modellib.load_image_gt(coco_val, model.conf
 # Load target
 target, _, _, _, _, random_image_id, box_ind = siamese_utils.get_same_target(image_id, category, coco_val, config, return_all=True)
 
-
+'''
 for i in range(length):
     image_id = list(ids[i].values())[0]
     print(image_id)
@@ -262,7 +264,9 @@ for i in range(length):
     pre.append(metrics.precision_score(gt_mask, r['masks'], b))
     rec.append(metrics.recall_score(gt_mask, r['masks'], b))
     acc.append(metrics.accuracy(gt_mask, r['masks'], b))
+    ac2.append(metrics.acc2(gt_mask, r['masks'], b))
     iou.append(metrics.iou(gt_mask, r['masks'], b))
+    '''
 '''
 print(dice1)
 dice_total = np.sum(dice1)/length
@@ -270,25 +274,28 @@ print(dice_total)
 dice_t2 = np.sum(dice2)/length
 print(dice_t2)
 '''
-
+im_t = []
 d_t1 = []
 d_t2 = []
 d_pre = []
 d_rec = []
 d_acc = []
+d_ac2 = []
 d_iou = []
 
 length = len(ids)
-for run in range(5):
+num = 10
+for run in range(num):
     print('\t*** Evaluation run {} ***'.format(run + 1))
     target, _, _, _, _, random_image_id, box_ind = siamese_utils.get_one_target(category, coco_val, config, return_all=True)
     print("RD id", random_image_id)
-
+    im_t.append(random_image_id)
     dice1 = []
     dice2 = []
     results = []
     pre = []
     acc = []
+    ac2 = []
     rec = []
     iou = []
     for i in range(length):
@@ -310,6 +317,7 @@ for run in range(5):
         pre.append(metrics.precision_score(gt_mask, r['masks'], b))
         rec.append(metrics.recall_score(gt_mask, r['masks'], b))
         acc.append(metrics.accuracy(gt_mask, r['masks'], b))
+        ac2.append(metrics.acc2(gt_mask, r['masks'], b))
         iou.append(metrics.iou(gt_mask, r['masks'], b))
 
     dice_total = np.sum(dice1) / length
@@ -323,10 +331,12 @@ for run in range(5):
     pre_total = np.sum(pre) / length
     rec_total = np.sum(rec) / length
     acc_total = np.sum(acc) / length
+    ac2_total = np.sum(ac2) / length
     iou_total = np.sum(iou) / length
     d_pre.append(pre_total)
     d_rec.append(rec_total)
     d_acc.append(acc_total)
+    d_ac2.append(ac2_total)
     d_iou.append(iou_total)
 
     print('\n' * 5, end='')
@@ -342,16 +352,34 @@ print("Dices 2", dice_t2)
 pre_total = np.sum(pre)/length
 rec_total = np.sum(rec)/length
 acc_total = np.sum(acc)/length
+ac2_total = np.sum(ac2)/length
 iou_total = np.sum(iou)/length
 print("Prec", pre_total)
 print("Rec", rec_total)
 print("Acc", acc_total)
+print("Acc", ac2_total)
 print("IoU", iou_total)
 
-print("5 random images")
+total = np.stack([im_t, d_t1, d_t2, d_pre, d_rec, d_acc, d_ac2, d_iou],axis=1).T
+#print("2", total)
+import pandas as pd
+df = pd.DataFrame({'target': total[0], 'dice': total[1], 'D2': total[2], 'pre': total[3], 'rec': total[4], 'acc': total[5],
+                   'acc2': total[6], 'iou': total[7]})
+print(df.head())
+df.to_csv('/data/lmp/code/siamese-mask-rcnn/metrics/cat2augv2.csv',index=False)
+
+print("X random images")
+print("random img", im_t)
 print("dice", d_t1)
 print("D2", d_t2)
 print("pre", d_pre)
 print("rec", d_rec)
 print("acc", d_acc)
+print("ac2", d_ac2)
 print("iou", d_iou)
+
+
+
+
+
+

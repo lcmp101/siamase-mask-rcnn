@@ -3,6 +3,7 @@ import json
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+import sklearn.metrics as skm
 from keras import backend as K
 from mrcnn import utils
 from skimage.measure import find_contours
@@ -187,9 +188,34 @@ def accuracy(gt_masks, pred_masks, class_ind):
     union = np.sum(pred) + np.sum(gt) - intersect
     xor = np.sum(gt==pred)
     acc = np.mean(xor/(union + xor - intersect))
-    return round(acc, 3)
+    return acc
 
+def acc2(gt_masks, pred_masks, class_ind):
+    M = pred_masks.shape[-1]
+    pred = np.zeros(pred_masks.shape[0:2])
+    for i in range(M):
+        pred = np.logical_or(pred, pred_masks[:, :, i])
 
+    gt = np.zeros(pred_masks.shape[0:2])
+    for i in class_ind:
+        gt = np.logical_or(gt, gt_masks[:, :, i])
+
+    acc = skm.accuracy_score(gt,pred)
+    return acc
+
+def acc3(gt_masks, pred_masks, class_ind):
+    M = pred_masks.shape[-1]
+    pred = np.zeros(pred_masks.shape[0:2])
+    for i in range(M):
+        pred = np.logical_or(pred, pred_masks[:, :, i])
+
+    N = gt_masks.shape[-1]
+    gt = np.zeros(gt_masks.shape[0:2])
+    for i in range(N):
+        gt = np.logical_or(gt, gt_masks[:, :, i])
+
+    acc = skm.accuracy_score(gt,pred)
+    return acc
 
 def iou(gt_masks, pred_masks, class_ind):
     M = pred_masks.shape[-1]
