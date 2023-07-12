@@ -50,15 +50,15 @@ MODEL_DIR = os.path.join(ROOT_DIR, "logs")
 
 # train_classes = coco_nopascal_classes
 #train_classes = np.array(range(1,81))
+#train_classes = np.array(range(1,3))
 train_classes = np.array(range(1,5))
-
 
 # In[3]:
 
 
 # Load COCO/train dataset
 coco_train = siamese_utils.IndexedCocoDataset()
-coco_train.load_coco(COCO_DATA, subset="train", subsubset="train", year="26")
+coco_train.load_coco(COCO_DATA, subset="train", subsubset="train", year="2aug")
 coco_train.prepare()
 coco_train.build_indices()
 coco_train.ACTIVE_CLASSES = train_classes
@@ -66,7 +66,7 @@ coco_train.ACTIVE_CLASSES = train_classes
 # Load COCO/val dataset
 
 coco_val = siamese_utils.IndexedCocoDataset()
-coco_val.load_coco(COCO_DATA, subset="train", subsubset="val", year="26")
+coco_val.load_coco(COCO_DATA, subset="train", subsubset="val", year="2aug")
 coco_val.prepare()
 coco_val.build_indices()
 coco_val.ACTIVE_CLASSES = train_classes
@@ -82,8 +82,10 @@ class SmallTrainConfig(siamese_config.Config):
     IMAGES_PER_GPU = 6 # A 16GB GPU is required for a batch_size of 12
     NUM_CLASSES = 1 + 1
     NAME = 'small_coco'
-    EXPERIMENT = 'Severstal'
+    EXPERIMENT = 'SeverstalAug507'
     CHECKPOINT_DIR = 'checkpoints/'
+    LEARNING_RATE = 0.0001
+    STEPS_PER_EPOCH = 1000
     # Adapt loss weights
     LOSS_WEIGHTS = {'rpn_class_loss': 2.0, 
                     'rpn_bbox_loss': 0.1, 
@@ -164,10 +166,16 @@ train_schedule[1] = {"learning_rate": config.LEARNING_RATE, "layers": "heads"}
 train_schedule[120] = {"learning_rate": config.LEARNING_RATE, "layers": "all"}
 train_schedule[160] = {"learning_rate": config.LEARNING_RATE/10, "layers": "all"}
 '''
+
 train_schedule[1] = {"learning_rate": config.LEARNING_RATE, "layers": "heads"}
 train_schedule[25] = {"learning_rate": config.LEARNING_RATE, "layers": "all"}
 train_schedule[50] = {"learning_rate": config.LEARNING_RATE/10, "layers": "all"}
-
+'''
+train_schedule[1] = {"learning_rate": config.LEARNING_RATE, "layers": "heads"}
+train_schedule[50] = {"learning_rate": config.LEARNING_RATE, "layers": "all"}
+train_schedule[100] = {"learning_rate": config.LEARNING_RATE/10, "layers": "all"}
+train_schedule[150] = {"learning_rate": config.LEARNING_RATE/100, "layers": "all"}
+'''
 
 # Load weights trained on Imagenet
 try: 
@@ -185,9 +193,5 @@ for epochs, parameters in train_schedule.items():
                 learning_rate=parameters["learning_rate"], 
                 epochs=epochs, 
                 layers=parameters["layers"])
-
-
-
-
 
 
