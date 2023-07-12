@@ -59,8 +59,8 @@ MODEL_DIR = os.path.join(ROOT_DIR, "logs")
 
 # train_classes = coco_nopascal_classes
 #train_classes = np.array(range(1,81))
-train_classes = np.array(range(1,3))
-#train_classes = np.array(range(1,5))
+#train_classes = np.array(range(1,3))
+train_classes = np.array(range(1,5))
 
 # In[5]:
 
