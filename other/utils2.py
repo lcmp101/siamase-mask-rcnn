@@ -270,4 +270,8 @@ def gen_img_json_ts(json_path, img_path):
     img = Image.open(img_bio)
 
     # Save image:
+<<<<<<< HEAD
     img.save(img_path)
+=======
+    img.save(img_path)
+>>>>>>> origin/master
