@@ -21,7 +21,7 @@ from samples.coco import coco
 from mrcnn import utils
 from mrcnn import model as modellib
 from mrcnn import visualize
-
+import json
 import pandas as pd
 
 from pycocotools.coco import COCO
@@ -40,12 +40,13 @@ def get_one_target(category, dataset, config, augmentation=None, target_size_lim
         category_image_index = dataset.category_image_index
         # Draw a random image
         random_image_id = np.random.choice(category_image_index[category])
-        # Load image    
+        #random_image_id = 333
+        # Load image
         target_image, target_image_meta, target_class_ids, target_boxes, target_masks = \
             modellib.load_image_gt(dataset, config, random_image_id, augmentation=augmentation,
                           use_mini_mask=config.USE_MINI_MASK)
         # print(random_image_id, category, target_class_ids)
-        
+
         if not np.any(target_class_ids == category):
             continue
 
@@ -69,11 +70,58 @@ def get_one_target(category, dataset, config, augmentation=None, target_size_lim
             break
     
     if return_all:
-        return target, window, scale, padding, crop
+        return target, window, scale, padding, crop, random_image_id, box_ind
     elif return_original_size:
         return target, original_size
     else:
         return target
+
+
+def get_same_target(image_id, category, dataset, config, augmentation=None, target_size_limit=0, max_attempts=10, return_all=False,
+                   return_original_size=False):
+    n_attempts = 0
+    while True:
+        # Get index with corresponding images for each category
+        #category_image_index = dataset.category_image_index
+        # Draw a random image
+        random_image_id = image_id
+        # random_image_id = 333
+        # Load image
+        target_image, target_image_meta, target_class_ids, target_boxes, target_masks = \
+            modellib.load_image_gt(dataset, config, random_image_id, augmentation=augmentation,
+                                   use_mini_mask=config.USE_MINI_MASK)
+        # print(random_image_id, category, target_class_ids)
+
+        if not np.any(target_class_ids == category):
+            continue
+
+        # try:
+        #     box_ind = np.random.choice(np.where(target_class_ids == category)[0])
+        # except ValueError:
+        #     return None
+        box_ind = np.random.choice(np.where(target_class_ids == category)[0])
+
+        tb = target_boxes[box_ind, :]
+        target = target_image[tb[0]:tb[2], tb[1]:tb[3], :]
+        original_size = target.shape
+        target, window, scale, padding, crop = utils.resize_image(
+            target,
+            min_dim=config.TARGET_MIN_DIM,
+            min_scale=config.IMAGE_MIN_SCALE,  # Same scaling as the image
+            max_dim=config.TARGET_MAX_DIM,
+            mode=config.IMAGE_RESIZE_MODE)  # Same output format as the image
+
+        n_attempts = n_attempts + 1
+        if (min(original_size[:2]) >= target_size_limit) or (n_attempts >= max_attempts):
+            break
+
+    if return_all:
+        return target, window, scale, padding, crop, random_image_id, box_ind
+    elif return_original_size:
+        return target, original_size
+    else:
+        return target
+
 
 def siamese_data_generator(dataset, config, shuffle=True, augmentation=imgaug.augmenters.Fliplr(0.5), random_rois=0,
                    batch_size=1, detection_targets=False, diverse=0):
@@ -364,247 +412,6 @@ class IndexedCocoDataset(coco.CocoDataset):
         return category_image_index
 
 
-class SteelDataset(utils.Dataset):
-    def load_steel(self, dataset_dir, files):
-        """Load a subset of the Steel dataset.
-
-        Input:
-        dataset_dir: Root directory of the dataset.
-        files: filenames of images to load
-
-        Creates:
-        image objects:
-            source: source label
-            image_id: id, used filename
-            path: path + filename
-            rle: rle mask encoded pixels, required for mask conversion
-            classes: classes for the rle masks, required for mask conversion
-        """
-        # Add classes.
-        self.add_class("steel", 1, "defect1")
-        self.add_class("steel", 2, "defect2")
-        self.add_class("steel", 3, "defect3")
-        self.add_class("steel", 4, "defect4")
-
-        # Load annotations CSV
-        annotations_train = pd.read_csv(dataset_dir + 'train.csv')
-
-        # Remove images without Encoding
-        annotations_train_Encoded = annotations_train[annotations_train['EncodedPixels'].notna()].copy()
-
-        # Split ImageId_ClassId
-        ImageId_ClassId_split = annotations_train_Encoded["ImageId_ClassId"].str.split("_", n=1, expand=True)
-        annotations_train_Encoded['ImageId'] = ImageId_ClassId_split.loc[:, 0]
-        annotations_train_Encoded['ClassId'] = ImageId_ClassId_split.loc[:, 1]
-
-        for file in files:
-            EncodedPixels = [annotations_train_Encoded['EncodedPixels'][annotations_train_Encoded['ImageId'] == file]]
-            ClassID = (annotations_train_Encoded['ClassId'][annotations_train_Encoded['ImageId'] == file])
-
-            self.add_image(
-                source="steel",
-                image_id=file,  # use filename as a unique image id
-                path=Train_Dir + '/' + file,
-                rle=EncodedPixels,
-                classes=ClassID)
-
-    def load_mask(self, image_id):
-        """Generate instance masks for an image.
-        Input:
-        image_id: id of the image
-
-        Returns:
-        masks: A bool array of shape [height, width, instance count] with one mask per instance.
-        class_ids: a 1D int array of class IDs of the instance masks.
-        """
-        # If not a steel dataset image, delegate to parent class.
-        image_info = self.image_info[image_id]
-        if image_info["source"] != "steel":
-            return super(self.__class__, self).load_mask(image_id)
-
-        # Convert rle to single mask
-        ClassIDIndex = 0
-        ClassID = np.empty(0, dtype=int)
-        maskarray = np.empty((256, 1600, 0), dtype=int)
-        for rlelist in image_info['rle']:
-            for row in rlelist:
-                mask = np.zeros(1600 * 256, dtype=np.uint8)
-                array = np.asarray([int(x) for x in row.split()])
-                starts = array[0::2] - 1
-                lengths = array[1::2]
-                for index, start in enumerate(starts):
-                    mask[int(start):int(start + lengths[index])] = 1
-                mask = mask.reshape((256, 1600), order='F')
-                # Label mask elements
-                structure = generate_binary_structure(2, 2)
-                labeled_array, labels = scipy_label(mask, structure)
-                # Convert labeled_array elements to bitmap mask array
-                for label in range(labels):
-                    labelmask = np.copy(labeled_array)
-                    labelmask[labelmask != label + 1] = 0
-                    if label == 0:
-                        labelmask = np.expand_dims(labelmask, axis=2)
-                        maskarray = np.concatenate((maskarray, labelmask), axis=2)
-                    else:
-                        labelmask[labelmask == label + 1] = 1
-                        labelmask = np.expand_dims(labelmask, axis=2)
-                        maskarray = np.concatenate((maskarray, labelmask), axis=2)
-                    # Update ClassID list
-                    ClassID = np.append(ClassID, int(image_info['classes'].iloc[ClassIDIndex]))
-                ClassIDIndex = ClassIDIndex + 1
-
-        # Return mask, and array of class IDs of each instance.
-        return maskarray.astype(np.bool), ClassID
-
-    def image_reference(self, image_id):
-        """Return the path of the image."""
-        info = self.image_info[image_id]
-        if info["source"] == "steel":
-            return info["path"]
-        else:
-            super(self.__class__, self).image_reference(image_id)
-
-    def __init__(self, dataframe):
-
-        # https://rhettinger.wordpress.com/2011/05/26/super-considered-super/
-        super().__init__(self)
-
-        # needs to be in the format of our squashed df,
-        # i.e. image id and list of rle plus their respective label on a single row
-        self.dataframe = dataframe
-
-    def load_dataset(self, subset='train'):
-        """ takes:
-                - pandas df containing
-                    1) file names of our images
-                       (which we will append to the directory to find our images)
-                    2) a list of rle for each image
-                       (which will be fed to our build_mask()
-                       function we also used in the eda section)
-            does:
-                adds images to the dataset with the utils.Dataset's add_image() metho
-        """
-
-        # input hygiene
-        assert subset in ['train', 'test'], f'"{subset}" is not a valid value.'
-        img_folder = img_train_folder if subset == 'train' else img_test_folder
-
-        # add our four classes
-        for i in range(1, 5):
-            self.add_class(source='', class_id=i, class_name=f'defect_{i}')
-
-        # add the image to our utils.Dataset class
-        for index, row in self.dataframe.iterrows():
-            file_name = row.ImageId
-            file_path = f'{img_folder}/{file_name}'
-
-            assert os.path.isfile(file_path), 'File doesn\'t exist.'
-            self.add_image(source='',
-                           image_id=file_name,
-                           path=file_path)
-
-    def load_mask(self, image_id):
-        """As found in:
-            https://github.com/matterport/Mask_RCNN/blob/master/samples/coco/coco.py
-
-        Load instance masks for the given image
-
-        This function converts the different mask format to one format
-        in the form of a bitmap [height, width, instances]
-
-        Returns:
-            - masks    : A bool array of shape [height, width, instance count] with
-                         one mask per instance
-            - class_ids: a 1D array of class IDs of the instance masks
-        """
-
-        # find the image in the dataframe
-        row = self.dataframe.iloc[image_id]
-
-        # extract function arguments
-        rle = row['EncodedPixels']
-        labels = row['ClassId']
-
-        # create our numpy array mask
-        mask = build_mask(encodings=rle, labels=labels)
-
-        # we're actually doing semantic segmentation, so our second return value is a bit awkward
-        # we have one layer per class, rather than per instance... so it will always just be
-        # 1, 2, 3, 4. See the section on Data Shapes for the Labels.
-        return mask.astype(np.bool), np.array([1, 2, 3, 4], dtype=np.int32)
-
-
-class SeverstalDataset(utils.Dataset):
-
-    def __init__(self, dataframe):
-
-        # https://rhettinger.wordpress.com/2011/05/26/super-considered-super/
-        super().__init__(self)
-
-        # needs to be in the format of our squashed df,
-        # i.e. image id and list of rle plus their respective label on a single row
-        self.dataframe = dataframe
-
-    def load_dataset(self, subset='train'):
-        """ takes:
-                - pandas df containing
-                    1) file names of our images
-                       (which we will append to the directory to find our images)
-                    2) a list of rle for each image
-                       (which will be fed to our build_mask()
-                       function we also used in the eda section)
-            does:
-                adds images to the dataset with the utils.Dataset's add_image() metho
-        """
-
-        # input hygiene
-        assert subset in ['train', 'test'], f'"{subset}" is not a valid value.'
-        img_folder = img_train_folder if subset == 'train' else img_test_folder
-
-        # add our four classes
-        for i in range(1, 5):
-            self.add_class(source='', class_id=i, class_name=f'defect_{i}')
-
-        # add the image to our utils.Dataset class
-        for index, row in self.dataframe.iterrows():
-            file_name = row.ImageId
-            file_path = f'{img_folder}/{file_name}'
-
-            assert os.path.isfile(file_path), 'File doesn\'t exist.'
-            self.add_image(source='',
-                           image_id=file_name,
-                           path=file_path)
-
-    def load_mask(self, image_id):
-        """As found in:
-            https://github.com/matterport/Mask_RCNN/blob/master/samples/coco/coco.py
-
-        Load instance masks for the given image
-
-        This function converts the different mask format to one format
-        in the form of a bitmap [height, width, instances]
-
-        Returns:
-            - masks    : A bool array of shape [height, width, instance count] with
-                         one mask per instance
-            - class_ids: a 1D array of class IDs of the instance masks
-        """
-
-        # find the image in the dataframe
-        row = self.dataframe.iloc[image_id]
-
-        # extract function arguments
-        rle = row['EncodedPixels']
-        labels = row['ClassId']
-
-        # create our numpy array mask
-        mask = build_mask(encodings=rle, labels=labels)
-
-        # we're actually doing semantic segmentation, so our second return value is a bit awkward
-        # we have one layer per class, rather than per instance... so it will always just be
-        # 1, 2, 3, 4. See the section on Data Shapes for the Labels.
-        return mask.astype(np.bool), np.array([1, 2, 3, 4], dtype=np.int32)
-
 
 ### Evaluation ###
 
@@ -819,7 +626,122 @@ def evaluate_dataset(model, dataset, dataset_object, eval_type="bbox", dataset_t
         
     if return_results:
         return cocoEval
-    
+
+
+def evaluate_same(model, dataset, dataset_object, eval_type="bbox", dataset_type='coco',
+                     limit=0, image_ids=None, class_index=None, verbose=1, random_detections=False,
+                     return_results=False):
+    """Runs official COCO evaluation.
+    dataset: A Dataset object with valiadtion data
+    eval_type: "bbox" or "segm" for bounding box or segmentation evaluation
+    limit: if not 0, it's the number of images to use for evaluation
+    """
+    assert dataset_type in ['coco']
+    # Pick COCO images from the dataset
+    image_ids = image_ids or dataset.image_ids
+
+    # Limit to a subset
+    if limit:
+        image_ids = image_ids[:limit]
+
+    # Get corresponding COCO image IDs.
+    dataset_image_ids = [dataset.image_info[id]["id"] for id in image_ids]
+
+    t_prediction = 0
+    t_start = time.time()
+
+    results = []
+    for i, image_id in enumerate(image_ids):
+        if i % 100 == 0 and verbose > 1:
+            print("Processing image {}/{} ...".format(i, len(image_ids)))
+
+        # Load GT data
+        _, _, gt_class_ids, _, _ = modellib.load_image_gt(dataset, model.config,
+                                                          image_id, augmentation=False,
+                                                          use_mini_mask=model.config.USE_MINI_MASK)
+
+        # BOILERPLATE: Code duplicated in siamese_data_loader
+
+        # Skip images that have no instances. This can happen in cases
+        # where we train on a subset of classes and the image doesn't
+        # have any of the classes we care about.
+        if not np.any(gt_class_ids > 0):
+            continue
+
+        # Use only positive class_ids
+        categories = np.unique(gt_class_ids)
+        _idx = categories > 0
+        categories = categories[_idx]
+        # Use only active classes
+        active_categories = []
+        for c in categories:
+            if any(c == dataset.ACTIVE_CLASSES):
+                active_categories.append(c)
+
+        # Skiop image if it contains no instance of any active class
+        if not np.any(np.array(active_categories) > 0):
+            continue
+
+        # END BOILERPLATE
+
+        # Evaluate for every category individually
+        for category in active_categories:
+
+            # Load image
+            image = dataset.load_image(image_id)
+
+            # Draw random target
+            target = []
+            for k in range(model.config.NUM_TARGETS):
+                try:
+                    target.append(get_same_target(image_id, category, dataset, model.config))
+                except:
+                    print('error fetching target of category', category)
+                    continue
+            target = np.stack(target, axis=0)
+            # Run detection
+            t = time.time()
+            try:
+                r = model.detect([target], [image], verbose=0, random_detections=random_detections)[0]
+            except:
+                print('error running detection for category', category)
+                continue
+            t_prediction += (time.time() - t)
+
+            # Format detections
+            r["class_ids"] = np.array([category for i in range(r["class_ids"].shape[0])])
+
+            # Convert results to COCO format
+            # Cast masks to uint8 because COCO tools errors out on bool
+            if dataset_type == 'coco':
+                image_results = coco.build_coco_results(dataset, dataset_image_ids[i:i + 1],
+                                                        r["rois"], r["class_ids"],
+                                                        r["scores"],
+                                                        r["masks"].astype(np.uint8))
+            results.extend(image_results)
+
+    # Load results. This modifies results with additional attributes.
+    dataset_results = dataset_object.loadRes(results)
+
+    # allow evaluating bbox & segm:
+    if not isinstance(eval_type, (list,)):
+        eval_type = [eval_type]
+
+    for current_eval_type in eval_type:
+        # Evaluate
+        cocoEval = customCOCOeval(dataset_object, dataset_results, current_eval_type)
+        cocoEval.params.imgIds = dataset_image_ids
+        cocoEval.evaluate()
+        cocoEval.accumulate()
+        cocoEval.summarize(class_index=class_index, verbose=verbose)
+        if verbose > 0:
+            print("Prediction time: {}. Average {}/image".format(
+                t_prediction, t_prediction / len(image_ids)))
+            print("Total time: ", time.time() - t_start)
+
+    if return_results:
+        return cocoEval
+
     
 ### Visualization ###
 
